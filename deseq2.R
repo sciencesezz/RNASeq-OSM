@@ -15,7 +15,7 @@ library(ComplexHeatmap)
 ##create required variables
 FDR <- 0.05 # FDR cutoff for DESeq analysis
 alpha <- 0.1 # independent filtering, default for DESeq analysis
-colours <- c(
+group_colours <- c(
   "Control" = "#A09E9F", 
   "DNOSM"   = "#1E88E5",  
   "COCSM"   = "#FFC107",  
@@ -68,12 +68,8 @@ count_file_dds <- DESeq2::DESeqDataSetFromMatrix(countData = count_file,
 
 #set the factor level, tell Deseq which level to compare against
 count_file_dds$group <- relevel(count_file_dds$group, ref = "Control")
-order_group <- c("Control", "Low", "LowRes", "High", "HighRes")
-order_stage <- c("Full", "Expanded", "Hatched")
-order_score <- c("Excellent", "Fair")
+order_group <- c("Control", "DNOSM", "COCSM", "CO-CUL")
 count_file_dds$group <- factor(count_file_dds$group, levels = order_group)
-count_file_dds$stage <- factor(count_file_dds$stage, levels = order_stage)
-count_file_dds$IETS <- factor(count_file_dds$IETS, levels = order_score)
 
 ##data transformation for PCA and Corr Plots of data
 #you can choose multiple options, but i will go with VST in the deseq package
@@ -88,7 +84,7 @@ pcaData <- plotPCA(count_file_dds_vst, intgroup = c("group"),
 
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 
-pcaplot <- ggplot(pcaData, aes(x = PC1, y = PC2, colour = group,  label = IETS, shape = stage)) +
+pcaplot <- ggplot(pcaData, aes(x = PC1, y = PC2, colour = group)) +
   geom_point(size = 3, alpha = 0.8) + 
   scale_color_manual(values = group_colours) +  
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
@@ -108,18 +104,9 @@ pcaplot <- ggplot(pcaData, aes(x = PC1,
 
 print(pcaplot)
 
-pcaplot2 <- ggplot(pcaData, aes(x = PC1, y = PC2, colour = group, shape = IETS)) +
-  geom_point(size = 3, alpha = 0.8) + 
-  scale_color_manual(values = group_colours) +  
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance"))
-
-print(pcaplot2)
-
 ggsave(filename = "pca_small.png", plot = pcaplot, width = 4, height = 3, dpi = 800)
 ggsave(filename = "pca_big.png", plot = pcaplot, width = 8, height = 6, dpi = 800)
-ggsave(filename = "pca_small2.png", plot = pcaplot2, width = 4, height = 3, dpi = 800)
-ggsave(filename = "pca_big2.png", plot = pcaplot2, width = 8, height = 6, dpi = 800)
+
 
 #plot correlation (non complex heatmap)
 count_file_mat_vst <- assay(count_file_dds_vst) #extract the vst matrix from the object
@@ -139,104 +126,51 @@ ggsave(filename = "corr_big.png", plot = corrplot, width = 8, height = 6, dpi = 
 #top annotation
 # Relevel the metadata to match the PCA plot
 metadata$group <- factor(metadata$group, levels = order_group)
-metadata$stage <- factor(metadata$stage, levels = order_stage)
-metadata$IETS <- factor(metadata$IETS, levels = order_score)
-metadata$media <- factor(metadata$media, levels = order_media)
+
 # Top annotation (columns)
 ha_top <- HeatmapAnnotation(
   group = metadata$group,
-  stage = metadata$stage,
-  score = metadata$IETS,
-  col = list(
-    group = group_colours,
-    stage = stage_colours,
-    score = iets_colours 
-  ),
-  annotation_height = unit(3, "mm"), 
-  annotation_width = unit(0.5, 'cm'), 
-  gap = unit(0.5, 'mm'), 
-  border = TRUE, 
+  col = list(group = group_colours),
+  annotation_height = unit(3, "mm"),
+  border = TRUE,
   annotation_legend_param = list(
     group = list(
-      nrow = 5, 
+      nrow = 5,
       title = "Group",
-      title_position = 'topleft',
-      legend_direction = 'horizontal',
-      title_gp = gpar(fontsize = 12, fontface = 'bold'),
-      labels_gp = gpar(fontsize = 12, fontface = 'plain')
-    ),
-    stage = list(
-      nrow = 2,
-      title = 'Stage',
-      title_position = 'topleft',
-      legend_direction = 'horizontal',
-      title_gp = gpar(fontsize = 12, fontface = 'bold'),
-      labels_gp = gpar(fontsize = 12, fontface = 'plain')
-    ),
-    score = list(
-      nrow = 1,
-      title = 'IETS Score',
-      title_position = 'topleft',
-      legend_direction = 'horizontal',
-      title_gp = gpar(fontsize = 12, fontface = 'bold'),
-      labels_gp = gpar(fontsize = 12, fontface = 'plain')
+      title_position = "topleft",
+      legend_direction = "horizontal",
+      title_gp = gpar(fontsize = 12, fontface = "bold"),
+      labels_gp = gpar(fontsize = 12, fontface = "plain")
     )
   )
 )
-
 # Row annotation
+# Row annotation (only group)
 ha_row <- HeatmapAnnotation(
   which = "row",
-  stage = metadata$stage,                        
   group = metadata$group,
-  score = metadata$IETS,
-  media = metadata$media,
-  col = list(
-    stage = stage_colours,
-    group = group_colours,
-    score = iets_colours,
-    media = media_colours
-  ),
-  annotation_height = 0.3, 
-  annotation_width = unit(1, 'cm'), 
-  gap = unit(1, 'mm'), 
-  border = TRUE, 
-  show_legend = FALSE, 
-  show_annotation_name = FALSE, 
+  col = list(group = group_colours),
+  annotation_width = unit(0.8, 'cm'),
+  border = TRUE,
+  show_legend = TRUE,
+  show_annotation_name = FALSE,
   annotation_legend_param = list(
-    stage = list(
-      nrow = 2,
-      title = 'Stage',
-      title_position = 'topcenter',
-      legend_direction = 'vertical',
-      title_gp = gpar(fontsize = 12, fontface = 'plain'),
-      labels_gp = gpar(fontsize = 12, fontface = 'plain')
-    ), 
     group = list(
-      nrow = 5, 
+      nrow = 5,
       title = "Group",
       title_position = 'topcenter',
       legend_direction = 'vertical',
-      title_gp = gpar(fontsize = 12, fontface = 'plain'),
-      labels_gp = gpar(fontsize = 12, fontface = 'plain')
-    ),
-    score = list(
-      nrow = 3, 
-      title = "IETS Score",
-      title_position = 'topcenter',
-      legend_direction = 'vertical',
-      title_gp = gpar(fontsize = 12, fontface = 'plain'),
+      title_gp = gpar(fontsize = 12, fontface = 'bold'),
       labels_gp = gpar(fontsize = 12, fontface = 'plain')
     )
   )
 )
-
 # Create the heatmap
 corrplot2 <- ComplexHeatmap::Heatmap(
   corr_value, 
-  name = "Correlation of Expressed miRNAs", 
+  name = "Correlation of Expressed mRNAs", 
   top_annotation = ha_top,
-  #right_annotation = ha_row, 
+  right_annotation = ha_row, 
   show_row_names = FALSE, 
   show_column_names = FALSE, 
   row_names_gp = gpar(fontsize = 10), 
@@ -271,14 +205,14 @@ draw(corrplot2,
 ########################################Deseq2 DEGS###############################
 ##then do the actual differential gene expression analysis
 # Install
-#BiocManager::install("org.Bt.eg.db")
+#BiocManager::install("org.Mm.eg.db")
 # Install biomaRt from Bioconductor
 #if (!requireNamespace("BiocManager", quietly = TRUE))
 # install.packages("BiocManager")
 
 #BiocManager::install("biomaRt")
 
-library(org.Bt.eg.db)
+library(org.Mm.eg.db)
 library(AnnotationDbi)
 library(biomaRt)
 library(DESeq2)
@@ -286,7 +220,7 @@ library(tibble)
 library(dplyr)
 
 # Annotation (unchanged)
-ensembl <- useEnsembl(biomart = "genes", dataset = "btaurus_gene_ensembl")
+ensembl <- useEnsembl(biomart = "genes", dataset = "mmusculus_gene_ensembl")
 gene_list <- rownames(count_file_dds)
 
 UCD2 <- getBM(
@@ -305,10 +239,10 @@ dds <- DESeq2::DESeq(count_file_dds)
 
 # Contrasts
 contrasts_list <- list(
-  HighRes_vs_High = c("group", "HighRes", "High"),
-  LowRes_vs_Low = c("group", "LowRes", "Low"),
-  Control_vs_Low = c("group", "Control", "Low"),
-  Control_vs_High = c("group", "Control", "High")
+  Control_vs_DNOSM = c("group", "Control", "DNOSM"),
+  Control_vs_COCSM = c("group", "Control", "COCSM"),
+  Control_vs_COCUL = c("group", "Control", "CO-CUL"),
+  COCUL_vs_COCSM = c("group", "CO-CUL", "COCSM")
 )
 
 # Loop through contrasts
@@ -337,6 +271,21 @@ for (comparison in names(contrasts_list)) {
   cat("Saved:", paste0(comparison, "_all_DEGs_annotated.csv\n"))
 }
 
+
+#annotating logcpm_count file:
+library(tibble)
+count_file_cpm <- as.data.frame(count_file_cpm)
+count_file_cpm <- rownames_to_column(count_file_cpm, var = "ensgene")
+
+count_file_cpm_anno <- left_join(
+  count_file_cpm,
+  UCD2[, c("ensgene", "symbol", "entrez", "biotype", "description")],
+  by = "ensgene"
+)
+View(count_file_cpm_anno)
+write.csv(count_file_cpm_anno, "osm_logcpmc_anno.csv", row.names = TRUE)
+
+###GSEA preparation - to use with local software
 
 # Create .rnk files for all contrasts
 for (comparison in names(contrasts_list)) {
@@ -369,143 +318,83 @@ for (comparison in names(contrasts_list)) {
   cat("Saved:", paste0(comparison, ".rnk\n"))
 }
 
-#annotating logcpm_count file:
+
+# ------------------------------
+# Libraries
+# ------------------------------
+library(DESeq2)
+library(dplyr)
 library(tibble)
-count_file_cpm <- as.data.frame(count_file_cpm)
-count_file_cpm <- rownames_to_column(count_file_cpm, var = "ensgene")
-
-count_file_cpm_anno <- left_join(
-  count_file_cpm,
-  UCD2[, c("ensgene", "symbol", "entrez", "biotype", "description")],
-  by = "ensgene"
-)
-View(count_file_cpm_anno)
-write.csv(count_file_cpm_anno, "osm_logcpmc_anno.csv", row.names = TRUE)
-
-###################################################
-# Generate GMT files for Bos taurus (cow)       #
-# KEGG, GO-BP, GO-CC, GO-MF using Ensembl IDs  #
-###################################################
-
-# Load required packages
 library(clusterProfiler)
-library(org.Bt.eg.db)
-library(AnnotationDbi)
-library(KEGGREST)
+library(org.Mm.eg.db)  # mouse annotation
 
-############################################
-# Helper function to write GMT file
-############################################
-write_gmt <- function(list_obj, file) {
-  con <- file(file, "w")
-  for (term in names(list_obj)) {
-    genes <- list_obj[[term]]
-    genes <- genes[!is.na(genes)]
-    if (length(genes) > 0) {
-      line <- paste(c(term, "NA", genes), collapse = "\t")
-      writeLines(line, con)
-    }
-  }
-  close(con)
+# ------------------------------
+# GSEA
+
+# ------------------------------
+# Initialize storage
+rnk_list <- list()  # To store named vectors for each contrast
+
+# ------------------------------
+# Loop through contrasts
+for (comparison in names(contrasts_list)) {
+  
+  # 1️ Get DESeq2 results
+  res <- DESeq2::results(
+    dds,
+    contrast = contrasts_list[[comparison]],
+    alpha = alpha,
+    independentFiltering = TRUE
+  )
+  
+  res_df <- as.data.frame(res)
+  
+  # 2️ Add gene symbols as a column
+  res_df <- tibble::rownames_to_column(res_df, var = "gene")
+  
+  # 3️ Drop genes without a valid statistic
+  res_df <- dplyr::filter(res_df, !is.na(stat))
+  
+  # 4️ Map gene symbols to Entrez IDs (for mouse)
+  gene_ids <- bitr(
+    res_df$gene,
+    fromType = "SYMBOL",
+    toType = "ENTREZID",
+    OrgDb = org.Mm.eg.db
+  )
+  
+  # Keep only mapped genes
+  res_df <- res_df[res_df$gene %in% gene_ids$SYMBOL, ]
+  
+  # Add Entrez ID column
+  res_df$ENTREZID <- gene_ids$ENTREZID[match(res_df$gene, gene_ids$SYMBOL)]
+  
+  # 5️ Create named vector for GSEA
+  gene_list <- res_df$stat
+  names(gene_list) <- res_df$ENTREZID
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # 6️ Save .rnk file (tab-delimited, no header)
+  rnk_df <- data.frame(ENTREZID = names(gene_list), stat = gene_list)
+  write.table(
+    rnk_df,
+    file = paste0(comparison, ".rnk"),
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    col.names = FALSE
+  )
+  
+  # 7️ Store in list for later GSEA
+  rnk_list[[comparison]] <- gene_list
+  
+  cat("Saved .rnk and stored in list:", comparison, "\n")
 }
 
-############################################
-# 1. KEGG pathways
-############################################
-cat("Generating KEGG GMT in Ensembl IDs...\n")
-
-# Get KEGG pathway → Entrez gene mapping
-kegg_bta <- keggLink("bta", "pathway")
-
-# Split into pathway list
-pathways <- split(sub("bta:", "", kegg_bta), names(kegg_bta))
-
-# Convert Entrez → Ensembl
-entrez2ensembl <- mapIds(org.Bt.eg.db,
-                         keys = unique(unlist(pathways)),
-                         keytype = "ENTREZID",
-                         column = "ENSEMBL",
-                         multiVals = "first")
-
-kegg_list <- lapply(pathways, function(x) entrez2ensembl[x])
-
-write_gmt(kegg_list, "Bos_taurus_KEGG_ENSEMBL.gmt")
-cat("Saved: Bos_taurus_KEGG_ENSEMBL.gmt\n")
-
-############################################
-# 2. GO terms (BP, CC, MF)
-############################################
-cat("Generating GO GMTs in Ensembl IDs...\n")
-
-# Get GO → Entrez gene mapping
-go_all <- as.list(org.Bt.egGO2ALLEGS)
-
-# Get ontology info for GO terms
-go_ontology <- AnnotationDbi::select(org.Bt.eg.db,
-                                     keys = names(go_all),
-                                     columns = c("GO", "ONTOLOGY"),
-                                     keytype = "GO")
-
-# Split GO terms by ontology
-go_onto_map <- split(go_ontology$ONTOLOGY, go_ontology$GO)
-
-GO_BP <- names(go_onto_map)[go_onto_map == "BP"]
-GO_CC <- names(go_onto_map)[go_onto_map == "CC"]
-GO_MF <- names(go_onto_map)[go_onto_map == "MF"]
-
-# Subset GO lists
-bp_list <- go_all[GO_BP]
-cc_list <- go_all[GO_CC]
-mf_list <- go_all[GO_MF]
-
-# Function to convert Entrez → Ensembl, removing empty sets
-convert_to_ensembl_list <- function(x) {
-  x <- x[sapply(x, length) > 0]  # remove empty sets
-  lapply(x, function(g) {
-    mapIds(org.Bt.eg.db,
-           keys = g,
-           keytype = "ENTREZID",
-           column = "ENSEMBL",
-           multiVals = "first")
-  })
-}
-
-bp_list_ensembl <- convert_to_ensembl_list(bp_list)
-cc_list_ensembl <- convert_to_ensembl_list(cc_list)
-mf_list_ensembl <- convert_to_ensembl_list(mf_list)
-
-# Write GMT files
-write_gmt(bp_list_ensembl, "Bos_taurus_GO_BP_ENSEMBL.gmt")
-write_gmt(cc_list_ensembl, "Bos_taurus_GO_CC_ENSEMBL.gmt")
-write_gmt(mf_list_ensembl, "Bos_taurus_GO_MF_ENSEMBL.gmt")
-
-cat("Saved: Bos_taurus_GO_BP_ENSEMBL.gmt\n")
-cat("Saved: Bos_taurus_GO_CC_ENSEMBL.gmt\n")
-cat("Saved: Bos_taurus_GO_MF_ENSEMBL.gmt\n")
-
-cat("\nAll GMT files for Bos taurus (Ensembl IDs) are ready for GSEA.\n")
+# ------------------------------
+# rnk_list now contains named vectors for all contrasts
+# Example usage for GSEA:
+# gseGO(geneList = rnk_list[["Treated_vs_Control"]], OrgDb = org.Mm.eg.db, ont = "BP")
+# ------------------------------
 
 
-#####CREATE DUMMY CHIP!!!##########
-# Get your DESeq2 gene IDs
-gene_ids <- rownames(dds)
-
-# Create data frame with required header
-dummy_chip <- data.frame(
-  "Probe Set ID" = gene_ids,
-  "Gene Symbol" = gene_ids,
-  check.names = FALSE,
-  stringsAsFactors = FALSE
-)
-
-# Save as tab-delimited text with header
-write.table(
-  dummy_chip,
-  file = "Bos_taurus_dummy.chip",
-  sep = "\t",
-  quote = FALSE,
-  row.names = FALSE,
-  col.names = TRUE
-)
-
-cat("Dummy chip file created: Bos_taurus_dummy.chip\n")
