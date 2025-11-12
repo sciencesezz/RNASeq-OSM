@@ -320,26 +320,23 @@ for (comparison in names(contrasts_list)) {
 
 
 # ------------------------------
+# GSEA
+
 # Libraries
-# ------------------------------
 library(DESeq2)
 library(dplyr)
 library(tibble)
 library(clusterProfiler)
-library(org.Mm.eg.db)  # mouse annotation
+library(org.Mm.eg.db)
 
 # ------------------------------
-# GSEA
-
+# GSEA Preparation
 # ------------------------------
-# Initialize storage
-rnk_list <- list()  # To store named vectors for each contrast
+rnk_list <- list()
 
-# ------------------------------
-# Loop through contrasts
 for (comparison in names(contrasts_list)) {
   
-  # 1️ Get DESeq2 results
+  # 1 Get DESeq2 results
   res <- DESeq2::results(
     dds,
     contrast = contrasts_list[[comparison]],
@@ -347,35 +344,39 @@ for (comparison in names(contrasts_list)) {
     independentFiltering = TRUE
   )
   
-  res_df <- as.data.frame(res)
+  # 2 Convert to data frame and add gene symbols
+  res_df <- as.data.frame(res) %>%
+    tibble::rownames_to_column(var = "SYMBOL") %>%
+    dplyr::filter(!is.na(stat))  # Remove genes with NA stat
   
-  # 2️ Add gene symbols as a column
-  res_df <- tibble::rownames_to_column(res_df, var = "gene")
-  
-  # 3️ Drop genes without a valid statistic
-  res_df <- dplyr::filter(res_df, !is.na(stat))
-  
-  # 4️ Map gene symbols to Entrez IDs (for mouse)
+  # 3 Map gene symbols to Entrez IDs
   gene_ids <- bitr(
-    res_df$gene,
+    res_df$SYMBOL,
     fromType = "SYMBOL",
     toType = "ENTREZID",
     OrgDb = org.Mm.eg.db
   )
   
-  # Keep only mapped genes
-  res_df <- res_df[res_df$gene %in% gene_ids$SYMBOL, ]
+  # 4 Join with original data
+  res_df <- res_df %>%
+    dplyr::inner_join(gene_ids, by = "SYMBOL")
   
-  # Add Entrez ID column
-  res_df$ENTREZID <- gene_ids$ENTREZID[match(res_df$gene, gene_ids$SYMBOL)]
+  # 5 Handle duplicates: keep the gene with the highest absolute stat
+  res_df <- res_df %>%
+    dplyr::group_by(ENTREZID) %>%
+    dplyr::slice_max(abs(stat), n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup()
   
-  # 5️ Create named vector for GSEA
+  # 6 Create ranked gene list
   gene_list <- res_df$stat
   names(gene_list) <- res_df$ENTREZID
   gene_list <- sort(gene_list, decreasing = TRUE)
   
-  # 6️ Save .rnk file (tab-delimited, no header)
-  rnk_df <- data.frame(ENTREZID = names(gene_list), stat = gene_list)
+  # 7 Save .rnk file
+  rnk_df <- data.frame(
+    ENTREZID = names(gene_list),
+    stat = gene_list
+  )
   write.table(
     rnk_df,
     file = paste0(comparison, ".rnk"),
@@ -385,16 +386,30 @@ for (comparison in names(contrasts_list)) {
     col.names = FALSE
   )
   
-  # 7️ Store in list for later GSEA
+  # 8️⃣ Store in list
   rnk_list[[comparison]] <- gene_list
   
-  cat("Saved .rnk and stored in list:", comparison, "\n")
+  cat("✓", comparison, ":", length(gene_list), "genes\n")
 }
 
 # ------------------------------
-# rnk_list now contains named vectors for all contrasts
-# Example usage for GSEA:
-# gseGO(geneList = rnk_list[["Treated_vs_Control"]], OrgDb = org.Mm.eg.db, ont = "BP")
+# KEGG pre-ranked GSEA
 # ------------------------------
+kegg_gsea <- gseKEGG(
+  geneList     = gene_list,
+  organism     = "mmu",
+  minGSSize    = 10,
+  pvalueCutoff = 0.05,
+  verbose      = FALSE
+)
 
-
+# Save KEGG results table
+if (length(kegg_gsea) > 0) {
+  kegg_table <- as.data.frame(kegg_gsea)
+  write.csv(kegg_table, file = file.path(output_dir, paste0(comparison, "_KEGG.csv")), row.names = FALSE)
+  
+  # Dotplot
+  png(file.path(output_dir, paste0(comparison, "_KEGG_dotplot.png")), width = 1200, height = 800, res = 150)
+  print(dotplot(kegg_gsea, showCategory = 20) + ggtitle(paste0(comparison, " KEGG")))
+  dev.off()
+}
