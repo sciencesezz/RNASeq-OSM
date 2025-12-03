@@ -22,7 +22,7 @@ group_colours <- c(
   "CO-CUL"  = "#004D40") 
 
 ## load count file
-count_file <- read.csv("/mnt/data/home/sarahsczelecki/osm/bovine_total_counts_r1r2_v2.csv", sep=',', header = TRUE, row.names = "Geneid")
+count_file <- read.csv("/mnt/data/home/sarahsczelecki/osm/osm_total_counts_final.csv", sep=',', header = TRUE, row.names = "Geneid")
 metadata <- read.csv("/mnt/data/home/sarahsczelecki/osm/metadata.csv", sep=',', header = TRUE)
 
 #reverse order of metadata
@@ -39,9 +39,7 @@ all(rownames(metadata) == colnames(count_file))
 dge <- edgeR::DGEList(counts = count_file, group = metadata$group)
 
 # Use filterByExpr - automatically determines appropriate thresholds
-keep <- edgeR::filterByExpr(dge, group = metadata$group, 
-                            min.count = 10, 
-                            min.samples = Inf)
+keep <- edgeR::filterByExpr(dge, group = metadata$group)
 
 dge <- dge[keep, , keep.lib.sizes = FALSE]
 
@@ -85,22 +83,10 @@ pcaData <- plotPCA(count_file_dds_vst, intgroup = c("group"),
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 
 pcaplot <- ggplot(pcaData, aes(x = PC1, y = PC2, colour = group)) +
-  geom_point(size = 3, alpha = 0.8) + 
+  geom_point(size = 3, alpha = 1.0) + 
   scale_color_manual(values = group_colours) +  
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance"))
-
-pcaplot <- ggplot(pcaData, aes(x = PC1, 
-                               y = PC2, 
-                               colour = group,  
-                               label = IETS, 
-                               shape = stage)) +
-  geom_point(size = 3.5, alpha = 0.75) + 
-  geom_text_repel(size = 2.5, show.legend = TRUE) +   
-  #scale_color_manual(values = group_colours) +  
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
-  theme_light()
 
 print(pcaplot)
 
@@ -112,10 +98,13 @@ ggsave(filename = "pca_big.png", plot = pcaplot, width = 8, height = 6, dpi = 80
 count_file_mat_vst <- assay(count_file_dds_vst) #extract the vst matrix from the object
 corr_value <- cor(count_file_mat_vst) #compute pairwise correlation values
 
-corrplot <- pheatmap(corr_value, annotation = select(metadata, group), 
-                     fontsize_row = 8, 
-                     fontsize_col = 8, 
-                     main = "Correlation Values of Sample Transcriptomes")
+corrplot <- pheatmap(
+  corr_value,
+  annotation = dplyr::select(metadata, group),
+  fontsize_row = 8,
+  fontsize_col = 8,
+  main = "Correlation Values of Sample Transcriptomes")
+
 print(corrplot)
 ggsave(filename = "corr_small.png", plot = corrplot, width = 4, height = 3, dpi = 800)
 ggsave(filename = "corr_big.png", plot = corrplot, width = 8, height = 6, dpi = 800)
@@ -239,9 +228,9 @@ dds <- DESeq2::DESeq(count_file_dds)
 
 # Contrasts
 contrasts_list <- list(
-  Control_vs_DNOSM = c("group", "Control", "DNOSM"),
-  Control_vs_COCSM = c("group", "Control", "COCSM"),
-  Control_vs_COCUL = c("group", "Control", "CO-CUL"),
+ DNOSM_vs_Control = c("group", "DNOSM", "Control"),
+ COCSM_vs_Control = c("group", "COCSM", "Control"),
+  COCUL_vs_COCUL = c("group", "CO-CUL", "Control"),
   COCUL_vs_COCSM = c("group", "CO-CUL", "COCSM")
 )
 
@@ -346,20 +335,20 @@ for (comparison in names(contrasts_list)) {
   
   # 2 Convert to data frame and add gene symbols
   res_df <- as.data.frame(res) %>%
-    tibble::rownames_to_column(var = "SYMBOL") %>%
-    dplyr::filter(!is.na(stat))  # Remove genes with NA stat
+    tibble::rownames_to_column(var = "ENSEMBL") %>%
+        dplyr::filter(!is.na(stat))  # Remove genes with NA stat
   
-  # 3 Map gene symbols to Entrez IDs
+  # 3 Map ensgene symbols to Entrez IDs
   gene_ids <- bitr(
-    res_df$SYMBOL,
-    fromType = "SYMBOL",
+    res_df$ENSEMBL,
+    fromType = "ENSEMBL",
     toType = "ENTREZID",
     OrgDb = org.Mm.eg.db
   )
   
   # 4 Join with original data
   res_df <- res_df %>%
-    dplyr::inner_join(gene_ids, by = "SYMBOL")
+    dplyr::inner_join(gene_ids, by = "ENSEMBL")
   
   # 5 Handle duplicates: keep the gene with the highest absolute stat
   res_df <- res_df %>%
@@ -406,10 +395,185 @@ kegg_gsea <- gseKEGG(
 # Save KEGG results table
 if (length(kegg_gsea) > 0) {
   kegg_table <- as.data.frame(kegg_gsea)
-  write.csv(kegg_table, file = file.path(output_dir, paste0(comparison, "_KEGG.csv")), row.names = FALSE)
+  write.csv(kegg_table, file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
+                                         paste0(comparison, "_KEGG.csv")), row.names = FALSE)
   
   # Dotplot
-  png(file.path(output_dir, paste0(comparison, "_KEGG_dotplot.png")), width = 1200, height = 800, res = 150)
+  png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
+                paste0(comparison, "_KEGG_dotplot.png")), width = 1200, height = 800, res = 150)
   print(dotplot(kegg_gsea, showCategory = 20) + ggtitle(paste0(comparison, " KEGG")))
   dev.off()
 }
+
+# ------------------------------
+# GO pre-ranked GSEA (BP, CC, MF)
+# ------------------------------
+
+ontologies <- c("BP", "CC", "MF")
+
+for (ont in ontologies) {
+  
+  go_gsea <- gseGO(
+    geneList     = gene_list,
+    OrgDb        = org.Mm.eg.db,
+    keyType      = "ENTREZID",
+    ont          = ont,
+    minGSSize    = 10,
+    pvalueCutoff = 0.05,
+    verbose      = FALSE, 
+    eps = 0
+  )
+  
+  # Save GO results table
+  if (length(go_gsea) > 0) {
+    go_table <- as.data.frame(go_gsea)
+    
+    write.csv(
+      go_table,
+      file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
+                       paste0(comparison, "_GO_", ont, ".csv")),
+      row.names = FALSE
+    )
+    
+    # Dotplot
+    png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
+                  paste0(comparison, "_GO_", ont, "_dotplot.png")),
+        width = 1200, height = 800, res = 150)
+    
+    print(dotplot(go_gsea, showCategory = 20) +
+            ggtitle(paste0(comparison, " GO ", ont)))
+    
+    dev.off()
+  }
+}
+############################DELETE##########################################
+# ------------------------------
+# GSEA Preparation
+# ------------------------------
+
+rnk_list <- list()
+
+for (comparison in names(contrasts_list)) {
+  
+  # 1 Get DESeq2 results
+  res <- DESeq2::results(
+    dds,
+    contrast = contrasts_list[[comparison]],
+    alpha = alpha,
+    independentFiltering = TRUE
+  )
+  
+  # 2 Convert to data frame and add gene symbols
+  res_df <- as.data.frame(res) %>%
+    tibble::rownames_to_column(var = "ENSEMBL") %>%
+    dplyr::filter(!is.na(stat))
+  
+  # 3 Map gene IDs
+  gene_ids <- bitr(
+    res_df$ENSEMBL,
+    fromType = "ENSEMBL",
+    toType = "ENTREZID",
+    OrgDb = org.Mm.eg.db
+  )
+  
+  # 4 Join with DE results
+  res_df <- res_df %>%
+    dplyr::inner_join(gene_ids, by = "ENSEMBL")
+  
+  # 5 Remove duplicates by max |stat|
+  res_df <- res_df %>%
+    dplyr::group_by(ENTREZID) %>%
+    dplyr::slice_max(abs(stat), n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup()
+  
+  # 6 Create ranked list
+  gene_list <- res_df$stat
+  names(gene_list) <- res_df$ENTREZID
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # Store for later use
+  rnk_list[[comparison]] <- gene_list
+  
+  # Save .rnk file
+  write.table(
+    data.frame(ENTREZID = names(gene_list), stat = gene_list),
+    file = paste0(comparison, ".rnk"),
+    sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+  )
+  
+  cat("✓", comparison, ":", length(gene_list), "genes\n")
+}
+
+# --------------------------------------------------------------------
+# KEGG + GO must LOOP over all comparisons, not just the last one!
+# --------------------------------------------------------------------
+
+output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files"
+
+for (comparison in names(rnk_list)) {
+  
+  gene_list <- rnk_list[[comparison]]
+  
+  # ------------------------------
+  # KEGG GSEA
+  # ------------------------------
+  kegg_gsea <- gseKEGG(
+    geneList     = gene_list,
+    organism     = "mmu",
+    minGSSize    = 10,
+    pvalueCutoff = 0.05,
+    verbose      = FALSE
+  )
+  
+  if (length(kegg_gsea) > 0) {
+    kegg_table <- as.data.frame(kegg_gsea)
+    write.csv(kegg_table,
+              file = file.path(output_dir, paste0(comparison, "_KEGG.csv")),
+              row.names = FALSE)
+    
+    png(file.path(output_dir, paste0(comparison, "_KEGG_dotplot.png")),
+        width = 1200, height = 800, res = 150)
+    print(dotplot(kegg_gsea, showCategory = 20) +
+            ggtitle(paste0(comparison, " KEGG")))
+    dev.off()
+  }
+  
+  # ------------------------------
+  # GO GSEA (BP, CC, MF)
+  # ------------------------------
+  ontologies <- c("BP", "CC", "MF")
+  
+  for (ont in ontologies) {
+    
+    go_gsea <- gseGO(
+      geneList     = gene_list,
+      OrgDb        = org.Mm.eg.db,
+      keyType      = "ENTREZID",
+      ont          = ont,
+      minGSSize    = 10,
+      pvalueCutoff = 0.05,
+      verbose      = FALSE,
+      eps          = 0
+    )
+    
+    if (length(go_gsea) > 0) {
+      go_table <- as.data.frame(go_gsea)
+      
+      write.csv(
+        go_table,
+        file = file.path(output_dir,
+                         paste0(comparison, "_GO_", ont, ".csv")),
+        row.names = FALSE
+      )
+      
+      png(file.path(output_dir,
+                    paste0(comparison, "_GO_", ont, "_dotplot.png")),
+          width = 1200, height = 800, res = 150)
+      print(dotplot(go_gsea, showCategory = 20) +
+              ggtitle(paste0(comparison, " GO ", ont)))
+      dev.off()
+    }
+  }
+}
+
+
