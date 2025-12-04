@@ -1,7 +1,7 @@
 ######################################Deseq2 Bovine Embryo############################
 
 getwd()
-setwd("/mnt/data/home/sarahsczelecki/osm/output-files")
+setwd("/mnt/data/home/sarahsczelecki/osm/output-files/final")
 library(tidyverse)
 library(ggplot2)
 library(tidyr)
@@ -36,7 +36,7 @@ all(rownames(metadata) == colnames(count_file))
 
 #use EdgeR's filter by  Expr to determine which genes should stay - or else you get a lot of DEGs downstream
 # Create DGEList object
-dge <- edgeR::DGEList(counts = count_file, group = metadata$group)
+dge <- edgeR::DGEList(counts = count_file, group = metadata$group, min.count = 10)
 
 # Use filterByExpr - automatically determines appropriate thresholds
 keep <- edgeR::filterByExpr(dge, group = metadata$group)
@@ -191,6 +191,7 @@ draw(corrplot2,
 # Close the graphics device (if saving to file)
 # dev.off()
 
+
 ########################################Deseq2 DEGS###############################
 ##then do the actual differential gene expression analysis
 # Install
@@ -230,7 +231,7 @@ dds <- DESeq2::DESeq(count_file_dds)
 contrasts_list <- list(
  DNOSM_vs_Control = c("group", "DNOSM", "Control"),
  COCSM_vs_Control = c("group", "COCSM", "Control"),
-  COCUL_vs_COCUL = c("group", "CO-CUL", "Control"),
+  COCUL_vs_Control = c("group", "CO-CUL", "Control"),
   COCUL_vs_COCSM = c("group", "CO-CUL", "COCSM")
 )
 
@@ -274,8 +275,44 @@ count_file_cpm_anno <- left_join(
 View(count_file_cpm_anno)
 write.csv(count_file_cpm_anno, "osm_logcpmc_anno.csv", row.names = TRUE)
 
-###GSEA preparation - to use with local software
 
+
+
+
+
+
+#visualise genes - just to check because this is count, which I assume is not normalised
+gene <- plotCounts(dds, gene="ENSMUSG00000074899", intgroup="group", returnData=TRUE)
+
+ggplot(gene, aes(x = group, y = count, colour = group)) +
+  geom_jitter(width = 0.2) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA) +
+  scale_y_log10() + 
+  scale_colour_manual(values = group_colours) +
+  theme_bw()
+
+
+######visualise normalised data!!
+vsd <- vst(dds)
+
+gene_vst <- data.frame(
+  sample = colnames(vsd),
+  expression = assay(vsd)["ENSMUSG00000074899", ],
+  group = dds$group
+)
+
+ggplot(gene_vst, aes(x = group, y = expression, colour = group, fill = group)) +
+  geom_jitter(width = 0.2) +
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) +
+  scale_colour_manual(values = group_colours) +
+  scale_fill_manual(values = group_colours) +
+  theme_bw()
+
+
+
+
+
+###GSEA preparation - to use with local software
 # Create .rnk files for all contrasts
 for (comparison in names(contrasts_list)) {
   
@@ -307,152 +344,10 @@ for (comparison in names(contrasts_list)) {
   cat("Saved:", paste0(comparison, ".rnk\n"))
 }
 
-
-# ------------------------------
-# GSEA
-
-# Libraries
-library(DESeq2)
-library(dplyr)
-library(tibble)
-library(clusterProfiler)
-library(org.Mm.eg.db)
-
 # ------------------------------
 # GSEA Preparation
 # ------------------------------
 rnk_list <- list()
-
-for (comparison in names(contrasts_list)) {
-  
-  # 1 Get DESeq2 results
-  res <- DESeq2::results(
-    dds,
-    contrast = contrasts_list[[comparison]],
-    alpha = alpha,
-    independentFiltering = TRUE
-  )
-  
-  # 2 Convert to data frame and add gene symbols
-  res_df <- as.data.frame(res) %>%
-    tibble::rownames_to_column(var = "ENSEMBL") %>%
-        dplyr::filter(!is.na(stat))  # Remove genes with NA stat
-  
-  # 3 Map ensgene symbols to Entrez IDs
-  gene_ids <- bitr(
-    res_df$ENSEMBL,
-    fromType = "ENSEMBL",
-    toType = "ENTREZID",
-    OrgDb = org.Mm.eg.db
-  )
-  
-  # 4 Join with original data
-  res_df <- res_df %>%
-    dplyr::inner_join(gene_ids, by = "ENSEMBL")
-  
-  # 5 Handle duplicates: keep the gene with the highest absolute stat
-  res_df <- res_df %>%
-    dplyr::group_by(ENTREZID) %>%
-    dplyr::slice_max(abs(stat), n = 1, with_ties = FALSE) %>%
-    dplyr::ungroup()
-  
-  # 6 Create ranked gene list
-  gene_list <- res_df$stat
-  names(gene_list) <- res_df$ENTREZID
-  gene_list <- sort(gene_list, decreasing = TRUE)
-  
-  # 7 Save .rnk file
-  rnk_df <- data.frame(
-    ENTREZID = names(gene_list),
-    stat = gene_list
-  )
-  write.table(
-    rnk_df,
-    file = paste0(comparison, ".rnk"),
-    sep = "\t",
-    quote = FALSE,
-    row.names = FALSE,
-    col.names = FALSE
-  )
-  
-  # 8️⃣ Store in list
-  rnk_list[[comparison]] <- gene_list
-  
-  cat("✓", comparison, ":", length(gene_list), "genes\n")
-}
-
-# ------------------------------
-# KEGG pre-ranked GSEA
-# ------------------------------
-kegg_gsea <- gseKEGG(
-  geneList     = gene_list,
-  organism     = "mmu",
-  minGSSize    = 10,
-  pvalueCutoff = 0.05,
-  verbose      = FALSE
-)
-
-# Save KEGG results table
-if (length(kegg_gsea) > 0) {
-  kegg_table <- as.data.frame(kegg_gsea)
-  write.csv(kegg_table, file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
-                                         paste0(comparison, "_KEGG.csv")), row.names = FALSE)
-  
-  # Dotplot
-  png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
-                paste0(comparison, "_KEGG_dotplot.png")), width = 1200, height = 800, res = 150)
-  print(dotplot(kegg_gsea, showCategory = 20) + ggtitle(paste0(comparison, " KEGG")))
-  dev.off()
-}
-
-# ------------------------------
-# GO pre-ranked GSEA (BP, CC, MF)
-# ------------------------------
-
-ontologies <- c("BP", "CC", "MF")
-
-for (ont in ontologies) {
-  
-  go_gsea <- gseGO(
-    geneList     = gene_list,
-    OrgDb        = org.Mm.eg.db,
-    keyType      = "ENTREZID",
-    ont          = ont,
-    minGSSize    = 10,
-    pvalueCutoff = 0.05,
-    verbose      = FALSE, 
-    eps = 0
-  )
-  
-  # Save GO results table
-  if (length(go_gsea) > 0) {
-    go_table <- as.data.frame(go_gsea)
-    
-    write.csv(
-      go_table,
-      file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
-                       paste0(comparison, "_GO_", ont, ".csv")),
-      row.names = FALSE
-    )
-    
-    # Dotplot
-    png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
-                  paste0(comparison, "_GO_", ont, "_dotplot.png")),
-        width = 1200, height = 800, res = 150)
-    
-    print(dotplot(go_gsea, showCategory = 20) +
-            ggtitle(paste0(comparison, " GO ", ont)))
-    
-    dev.off()
-  }
-}
-############################DELETE##########################################
-# ------------------------------
-# GSEA Preparation
-# ------------------------------
-
-rnk_list <- list()
-
 for (comparison in names(contrasts_list)) {
   
   # 1 Get DESeq2 results
@@ -504,76 +399,142 @@ for (comparison in names(contrasts_list)) {
   cat("✓", comparison, ":", length(gene_list), "genes\n")
 }
 
-# --------------------------------------------------------------------
-# KEGG + GO must LOOP over all comparisons, not just the last one!
-# --------------------------------------------------------------------
+# VERIFY rnk_list was created properly
+cat("\n=== Checking rnk_list ===\n")
+cat("Number of comparisons in rnk_list:", length(rnk_list), "\n")
+cat("Comparison names:", paste(names(rnk_list), collapse = ", "), "\n\n")
 
-output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files"
+# --------------------------------------------------------------------
+# KEGG + GO - Loop over all comparisons
+# --------------------------------------------------------------------
+output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files/final"
+
+# Create output directory if it doesn't exist
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 
 for (comparison in names(rnk_list)) {
   
+  cat("\n========================================\n")
+  cat("Processing:", comparison, "\n")
+  cat("========================================\n")
+  
   gene_list <- rnk_list[[comparison]]
+  cat("Gene list length:", length(gene_list), "\n")
   
   # ------------------------------
   # KEGG GSEA
   # ------------------------------
-  kegg_gsea <- gseKEGG(
-    geneList     = gene_list,
-    organism     = "mmu",
-    minGSSize    = 10,
-    pvalueCutoff = 0.05,
-    verbose      = FALSE
-  )
+  cat("Running KEGG GSEA...\n")
   
-  if (length(kegg_gsea) > 0) {
-    kegg_table <- as.data.frame(kegg_gsea)
-    write.csv(kegg_table,
-              file = file.path(output_dir, paste0(comparison, "_KEGG.csv")),
-              row.names = FALSE)
+  tryCatch({
+    kegg_gsea <- gseKEGG(
+      geneList     = gene_list,
+      organism     = "mmu",
+      minGSSize    = 10,
+      pvalueCutoff = 0.25,
+      verbose      = FALSE
+    )
     
-    png(file.path(output_dir, paste0(comparison, "_KEGG_dotplot.png")),
-        width = 1200, height = 800, res = 150)
-    print(dotplot(kegg_gsea, showCategory = 20) +
-            ggtitle(paste0(comparison, " KEGG")))
-    dev.off()
-  }
+    if (!is.null(kegg_gsea) && nrow(kegg_gsea) > 0) {
+      kegg_table <- as.data.frame(kegg_gsea)
+      write.csv(kegg_table,
+                file = file.path(output_dir, paste0(comparison, "_KEGG.csv")),
+                row.names = FALSE)
+      
+      png(file.path(output_dir, paste0(comparison, "_KEGG_dotplot.png")),
+          width = 1200, height = 800, res = 150)
+      print(dotplot(kegg_gsea, showCategory = 20) +
+              ggtitle(paste0(comparison, " KEGG")))
+      dev.off()
+      
+      cat("✓ KEGG results saved:", nrow(kegg_table), "pathways\n")
+    } else {
+      cat("⚠ No significant KEGG results\n")
+    }
+  }, error = function(e) {
+    cat("✗ KEGG GSEA failed:", conditionMessage(e), "\n")
+  })
   
   # ------------------------------
   # GO GSEA (BP, CC, MF)
   # ------------------------------
   ontologies <- c("BP", "CC", "MF")
   
+  # Initialize list to store all GO results for this comparison
+  all_go_results <- list()
+  
   for (ont in ontologies) {
+    cat("Running GO", ont, "GSEA...\n")
     
-    go_gsea <- gseGO(
-      geneList     = gene_list,
-      OrgDb        = org.Mm.eg.db,
-      keyType      = "ENTREZID",
-      ont          = ont,
-      minGSSize    = 10,
-      pvalueCutoff = 0.05,
-      verbose      = FALSE,
-      eps          = 0
-    )
-    
-    if (length(go_gsea) > 0) {
-      go_table <- as.data.frame(go_gsea)
-      
-      write.csv(
-        go_table,
-        file = file.path(output_dir,
-                         paste0(comparison, "_GO_", ont, ".csv")),
-        row.names = FALSE
+    tryCatch({
+      go_gsea <- gseGO(
+        geneList     = gene_list,
+        OrgDb        = org.Mm.eg.db,
+        keyType      = "ENTREZID",
+        ont          = ont,
+        minGSSize    = 10,
+        pvalueCutoff = 0.25,
+        verbose      = FALSE,
+        eps          = 0
       )
       
-      png(file.path(output_dir,
-                    paste0(comparison, "_GO_", ont, "_dotplot.png")),
-          width = 1200, height = 800, res = 150)
-      print(dotplot(go_gsea, showCategory = 20) +
-              ggtitle(paste0(comparison, " GO ", ont)))
-      dev.off()
-    }
+      if (!is.null(go_gsea) && nrow(go_gsea) > 0) {
+        go_table <- as.data.frame(go_gsea)
+        
+        # Add ontology column to identify the source
+        go_table$Ontology <- ont
+        
+        # Store in list for combining later
+        all_go_results[[ont]] <- go_table
+        
+        # Still save individual files
+        write.csv(
+          go_table,
+          file = file.path(output_dir,
+                           paste0(comparison, "_GO_", ont, ".csv")),
+          row.names = FALSE
+        )
+        
+        png(file.path(output_dir,
+                      paste0(comparison, "_GO_", ont, "_dotplot.png")),
+            width = 1200, height = 800, res = 150)
+        print(dotplot(go_gsea, showCategory = 20) +
+                ggtitle(paste0(comparison, " GO ", ont)))
+        dev.off()
+        
+        cat("✓ GO", ont, "results saved:", nrow(go_table), "terms\n")
+      } else {
+        cat("⚠ No significant GO", ont, "results\n")
+      }
+    }, error = function(e) {
+      cat("✗ GO", ont, "GSEA failed:", conditionMessage(e), "\n")
+    })
+  }
+  
+  # ------------------------------
+  # Combine all GO results into one file
+  # ------------------------------
+  if (length(all_go_results) > 0) {
+    combined_go <- dplyr::bind_rows(all_go_results)
+    
+    # Reorder columns to put Ontology near the front
+    col_order <- c("ID", "Description", "Ontology", 
+                   setdiff(names(combined_go), c("ID", "Description", "Ontology")))
+    combined_go <- combined_go[, col_order]
+    
+    # Save combined file
+    write.csv(
+      combined_go,
+      file = file.path(output_dir, paste0(comparison, "_GO_ALL.csv")),
+      row.names = FALSE
+    )
+    
+    cat("✓ Combined GO file saved:", nrow(combined_go), "total terms\n")
+  } else {
+    cat("⚠ No GO results to combine\n")
   }
 }
 
-
+cat("\n=== All analyses complete ===\n")

@@ -230,7 +230,7 @@ dds <- DESeq2::DESeq(count_file_dds)
 contrasts_list <- list(
  DNOSM_vs_Control = c("group", "DNOSM", "Control"),
  COCSM_vs_Control = c("group", "COCSM", "Control"),
-  COCUL_vs_COCUL = c("group", "CO-CUL", "Control"),
+  COCUL_vs_Control = c("group", "CO-CUL", "Control"),
   COCUL_vs_COCSM = c("group", "CO-CUL", "COCSM")
 )
 
@@ -395,11 +395,11 @@ kegg_gsea <- gseKEGG(
 # Save KEGG results table
 if (length(kegg_gsea) > 0) {
   kegg_table <- as.data.frame(kegg_gsea)
-  write.csv(kegg_table, file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
+  write.csv(kegg_table, file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files/final", 
                                          paste0(comparison, "_KEGG.csv")), row.names = FALSE)
   
   # Dotplot
-  png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files", 
+  png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files/final", 
                 paste0(comparison, "_KEGG_dotplot.png")), width = 1200, height = 800, res = 150)
   print(dotplot(kegg_gsea, showCategory = 20) + ggtitle(paste0(comparison, " KEGG")))
   dev.off()
@@ -430,13 +430,13 @@ for (ont in ontologies) {
     
     write.csv(
       go_table,
-      file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
+      file = file.path("/mnt/data/home/sarahsczelecki/osm/output-files/final",
                        paste0(comparison, "_GO_", ont, ".csv")),
       row.names = FALSE
     )
     
     # Dotplot
-    png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files",
+    png(file.path("/mnt/data/home/sarahsczelecki/osm/output-files/final",
                   paste0(comparison, "_GO_", ont, "_dotplot.png")),
         width = 1200, height = 800, res = 150)
     
@@ -508,7 +508,7 @@ for (comparison in names(contrasts_list)) {
 # KEGG + GO must LOOP over all comparisons, not just the last one!
 # --------------------------------------------------------------------
 
-output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files"
+output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files/final"
 
 for (comparison in names(rnk_list)) {
   
@@ -521,7 +521,7 @@ for (comparison in names(rnk_list)) {
     geneList     = gene_list,
     organism     = "mmu",
     minGSSize    = 10,
-    pvalueCutoff = 0.05,
+    pvalueCutoff = 0.25,
     verbose      = FALSE
   )
   
@@ -551,7 +551,7 @@ for (comparison in names(rnk_list)) {
       keyType      = "ENTREZID",
       ont          = ont,
       minGSSize    = 10,
-      pvalueCutoff = 0.05,
+      pvalueCutoff = 0.25,
       verbose      = FALSE,
       eps          = 0
     )
