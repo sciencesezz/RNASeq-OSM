@@ -106,9 +106,15 @@ corrplot <- pheatmap(
   main = "Correlation Values of Sample Transcriptomes")
 
 print(corrplot)
-ggsave(filename = "corr_small.png", plot = corrplot, width = 4, height = 3, dpi = 800)
-ggsave(filename = "corr_big.png", plot = corrplot, width = 8, height = 6, dpi = 800)
+# Save as PNG
+png(filename = "corr_small.png", width = 4, height = 3, units = "in", res = 800)
+draw(corrplot)  # or just print(corrplot)
+dev.off()
 
+# Or save as PDF (better for publications)
+pdf(file = "corr_small.pdf", width = 4, height = 3)
+draw(corrplot)
+dev.off()
 #######################ComplexHeatmap Correlation Plot############################
 ####making a heatmap using the ComplexHeatmap function
 #need to make the annotation bars for heatmap annotation
@@ -347,6 +353,9 @@ for (comparison in names(contrasts_list)) {
 # ------------------------------
 # GSEA Preparation
 # ------------------------------
+library(clusterProfiler)
+library(msigdbr)
+
 rnk_list <- list()
 for (comparison in names(contrasts_list)) {
   
@@ -404,8 +413,16 @@ cat("\n=== Checking rnk_list ===\n")
 cat("Number of comparisons in rnk_list:", length(rnk_list), "\n")
 cat("Comparison names:", paste(names(rnk_list), collapse = ", "), "\n\n")
 
+# Load MSigDB gene sets once (outside the loop for efficiency)
+cat("Loading MSigDB gene sets...\n")
+hallmark_sets <- msigdbr(species = "Mus musculus", category = "H")
+c2_sets <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP")
+cancer_sets <- msigdbr(species = "Mus musculus", category = "C4", subcategory = "3CA")
+onco_sets <- msigdbr(species = "Mus musculus", category = "C6")
+cat("✓ Gene sets loaded\n\n")
+
 # --------------------------------------------------------------------
-# KEGG + GO - Loop over all comparisons
+# KEGG + GO + GSEA Preranked - Loop over all comparisons
 # --------------------------------------------------------------------
 output_dir <- "/mnt/data/home/sarahsczelecki/osm/output-files/final"
 
@@ -535,6 +552,162 @@ for (comparison in names(rnk_list)) {
   } else {
     cat("⚠ No GO results to combine\n")
   }
+  
+  # ------------------------------
+  # GSEA Preranked - Hallmark Gene Sets
+  # ------------------------------
+  cat("Running GSEA Hallmark...\n")
+  
+  tryCatch({
+    gsea_hallmark <- GSEA(
+      geneList     = gene_list,
+      TERM2GENE    = hallmark_sets[, c("gs_name", "entrez_gene")],
+      minGSSize    = 10,
+      maxGSSize    = 500,
+      pvalueCutoff = 0.25,
+      verbose      = FALSE,
+      eps          = 0
+    )
+    
+    if (!is.null(gsea_hallmark) && nrow(gsea_hallmark) > 0) {
+      hallmark_table <- as.data.frame(gsea_hallmark)
+      
+      write.csv(
+        hallmark_table,
+        file = file.path(output_dir, paste0(comparison, "_GSEA_Hallmark.csv")),
+        row.names = FALSE
+      )
+      
+      png(file.path(output_dir, paste0(comparison, "_GSEA_Hallmark_dotplot.png")),
+          width = 1200, height = 800, res = 150)
+      print(dotplot(gsea_hallmark, showCategory = 20) +
+              ggtitle(paste0(comparison, " GSEA Hallmark")))
+      dev.off()
+      
+      cat("✓ GSEA Hallmark results saved:", nrow(hallmark_table), "gene sets\n")
+    } else {
+      cat("⚠ No significant GSEA Hallmark results\n")
+    }
+  }, error = function(e) {
+    cat("✗ GSEA Hallmark failed:", conditionMessage(e), "\n")
+  })
+  
+  # ------------------------------
+  # GSEA Preranked - C2 Canonical Pathways
+  # ------------------------------
+  cat("Running GSEA C2 Canonical Pathways...\n")
+  
+  tryCatch({
+    gsea_c2 <- GSEA(
+      geneList     = gene_list,
+      TERM2GENE    = c2_sets[, c("gs_name", "entrez_gene")],
+      minGSSize    = 10,
+      maxGSSize    = 500,
+      pvalueCutoff = 0.25,
+      verbose      = FALSE,
+      eps          = 0
+    )
+    
+    if (!is.null(gsea_c2) && nrow(gsea_c2) > 0) {
+      c2_table <- as.data.frame(gsea_c2)
+      
+      write.csv(
+        c2_table,
+        file = file.path(output_dir, paste0(comparison, "_GSEA_C2.csv")),
+        row.names = FALSE
+      )
+      
+      png(file.path(output_dir, paste0(comparison, "_GSEA_C2_dotplot.png")),
+          width = 1200, height = 1000, res = 150)
+      print(dotplot(gsea_c2, showCategory = 20) +
+              ggtitle(paste0(comparison, " GSEA C2 Canonical Pathways")))
+      dev.off()
+      
+      cat("✓ GSEA C2 results saved:", nrow(c2_table), "gene sets\n")
+    } else {
+      cat("⚠ No significant GSEA C2 results\n")
+    }
+  }, error = function(e) {
+    cat("✗ GSEA C2 failed:", conditionMessage(e), "\n")
+  })
+  
+  # ------------------------------
+  # GSEA Preranked - C4 Cancer Gene Neighborhoods
+  # ------------------------------
+  cat("Running GSEA Curated Cancer Cell Atlas gene sets...\n")
+  
+  tryCatch({
+    gsea_cancer <- GSEA(
+      geneList     = gene_list,
+      TERM2GENE    = cancer_sets[, c("gs_name", "entrez_gene")],
+      minGSSize    = 10,
+      maxGSSize    = 500,
+      pvalueCutoff = 0.25,
+      verbose      = FALSE,
+      eps          = 0
+    )
+    
+    if (!is.null(gsea_cancer) && nrow(gsea_cancer) > 0) {
+      cancer_table <- as.data.frame(gsea_cancer)
+      
+      write.csv(
+        cancer_table,
+        file = file.path(output_dir, paste0(comparison, "_GSEA_3CA_Cancer.csv")),
+        row.names = FALSE
+      )
+      
+      png(file.path(output_dir, paste0(comparison, "_GSEA_3CA_Cancer_dotplot.png")),
+          width = 1200, height = 800, res = 150)
+      print(dotplot(gsea_cancer, showCategory = 20) +
+              ggtitle(paste0(comparison, " GSEA C4 Cancer")))
+      dev.off()
+      
+      cat("✓ GSEA 3CA Cancer results saved:", nrow(cancer_table), "gene sets\n")
+    } else {
+      cat("⚠ No significant GSEA 3CA Cancer results\n")
+    }
+  }, error = function(e) {
+    cat("✗ GSEA 3CA Cancer failed:", conditionMessage(e), "\n")
+  })
+  
+  # ------------------------------
+  # GSEA Preranked - C6 Oncogenic Signatures
+  # ------------------------------
+  cat("Running GSEA C6 Oncogenic Signatures...\n")
+  
+  tryCatch({
+    gsea_onco <- GSEA(
+      geneList     = gene_list,
+      TERM2GENE    = onco_sets[, c("gs_name", "entrez_gene")],
+      minGSSize    = 10,
+      maxGSSize    = 500,
+      pvalueCutoff = 0.25,
+      verbose      = FALSE,
+      eps          = 0
+    )
+    
+    if (!is.null(gsea_onco) && nrow(gsea_onco) > 0) {
+      onco_table <- as.data.frame(gsea_onco)
+      
+      write.csv(
+        onco_table,
+        file = file.path(output_dir, paste0(comparison, "_GSEA_C6_Oncogenic.csv")),
+        row.names = FALSE
+      )
+      
+      png(file.path(output_dir, paste0(comparison, "_GSEA_C6_Oncogenic_dotplot.png")),
+          width = 1200, height = 800, res = 150)
+      print(dotplot(gsea_onco, showCategory = 20) +
+              ggtitle(paste0(comparison, " GSEA C6 Oncogenic")))
+      dev.off()
+      
+      cat("✓ GSEA C6 Oncogenic results saved:", nrow(onco_table), "gene sets\n")
+    } else {
+      cat("⚠ No significant GSEA C6 Oncogenic results\n")
+    }
+  }, error = function(e) {
+    cat("✗ GSEA C6 Oncogenic failed:", conditionMessage(e), "\n")
+  })
+  
 }
-
 cat("\n=== All analyses complete ===\n")
