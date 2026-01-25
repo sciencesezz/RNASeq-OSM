@@ -1,4 +1,4 @@
-######################################Deseq2 Bovine Embryo############################
+######################################Deseq2 OSM############################
 
 getwd()
 setwd("/mnt/data/home/sarahsczelecki/osm/output-files")
