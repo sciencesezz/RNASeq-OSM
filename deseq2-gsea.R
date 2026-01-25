@@ -288,12 +288,12 @@ write.csv(count_file_cpm_anno, "osm_logcpmc_anno.csv", row.names = TRUE)
 
 
 #visualise genes - just to check because this is count, which I assume is not normalised
-gene <- plotCounts(dds, gene="ENSMUSG00000074899", intgroup="group", returnData=TRUE)
+gene <- plotCounts(dds, gene="ENSMUSG00000061244", intgroup="group", returnData=TRUE)
 
 ggplot(gene, aes(x = group, y = count, colour = group)) +
   geom_jitter(width = 0.2) +
   geom_boxplot(alpha = 0.3, outlier.shape = NA) +
-  scale_y_log10() + 
+  #scale_y_log10() + 
   scale_colour_manual(values = group_colours) +
   theme_bw()
 
@@ -303,7 +303,7 @@ vsd <- vst(dds)
 
 gene_vst <- data.frame(
   sample = colnames(vsd),
-  expression = assay(vsd)["ENSMUSG00000074899", ],
+  expression = assay(vsd)["ENSMUSG00000018238", ],
   group = dds$group
 )
 
